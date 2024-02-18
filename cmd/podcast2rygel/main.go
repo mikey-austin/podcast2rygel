@@ -1,16 +1,19 @@
 package main
 
 import (
-	"fmt"
-	"github.com/mmcdole/gofeed"
-	"gopkg.in/yaml.v2"
 	"io/ioutil"
 	"log"
 	"podcast2rygel/cmd/podcast2rygel/internal/media"
+
+	"github.com/godbus/dbus/v5"
+
+	"github.com/mmcdole/gofeed"
+	"gopkg.in/yaml.v2"
 )
 
 type Config struct {
-	Feeds []struct {
+	AppName string `yaml:"appName"`
+	Feeds    []struct {
 		Name string `yaml:"name"`
 		URL  string `yaml:"url"`
 	} `yaml:"feeds"`
@@ -53,14 +56,30 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to fetch feeds: %v", err)
 	}
+	rootDirectory := media.NewPodcastDirectory(
+		func() []*gofeed.Feed { return feeds }, // TODO: invoke fetching in this lambda
+		config.AppName,
+		"/org/gnome/UPnP/MediaServer2/" + config.AppName)
 
-	for _, feed := range feeds {
-		fmt.Printf("Feed: %s\n", feed.Title)
-		for _, item := range feed.Items {
-			fmt.Printf("Item: %s - %s\n", item.Title, item.Link)
-		}
+	conn, err := dbus.SessionBus()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer conn.Close()
+
+	// Register all objects with D-Bus
+	rootDirectory.Register(conn)
+
+	// Request the name on the D-Bus
+	serviceName := "org.gnome.UPnP.MediaServer2." + config.AppName
+	reply, err := conn.RequestName(serviceName, dbus.NameFlagDoNotQueue)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if reply != dbus.RequestNameReplyPrimaryOwner {
+		log.Fatal("Name already taken")
 	}
 
-	container := &media.PodcastMediaContainer{ChildCount: 10}
-	fmt.Printf("Num children in container: %d", container.ChildCount)
+	// The service is now running and can be interacted with using D-Bus clients
+	select {} // Run forever
 }

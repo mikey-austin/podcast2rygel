@@ -1,36 +1,40 @@
 package media
 
-// Import the dbus package
 import (
 	"github.com/godbus/dbus/v5"
 )
 
-// MediaObject2 represents the common interface for media objects
+// org.gnome.MediaObject2 dbus interface
 type MediaObject2 interface {
-	// Add methods related to MediaObject2 here
+	Parent() dbus.ObjectPath // The container containing this object. If this is the root container it must point to itself.
+	Type() string            // 'container', 'video', 'video.movie', 'audio', 'music', 'image' or 'image.photo'
+	Path() dbus.ObjectPath   // D-bus path of the object
+	DisplayName() string     // The readable name of this object
 }
 
-// MediaContainer2 represents the interface for media containers
+// org.gnome.UPnP.MediaContainer2 dbus interface
 type MediaContainer2 interface {
 	MediaObject2 // Inherits the MediaObject2 interface
-	// Add methods specific to MediaContainer2 here
+
+	ChildCount() int     // u org.gnome.UPnP.MediaContainer2.ChildCount
+	ItemCount() int      // u org.gnome.UPnP.MediaContainer2.ItemCount
+	ContainerCount() int // u org.gnome.UPnP.MediaContainer2.ContainerCount
+	Searchable() bool    // b org.gnome.UPnP.MediaContainer2.Searchable
+
+	// aa{sv} org.gnome.UPnP.MediaContainer2.ListChildren (IN u offset, IN u max, IN as filter)
 	ListChildren(offset uint, max uint, filter []string) ([]map[string]dbus.Variant, error)
+
+	// aa{sv} org.gnome.UPnP.MediaContainer2.ListContainers (IN u offset, IN u max, IN as filter)
+	ListContainers(offset uint, max uint, filter []string) ([]map[string]dbus.Variant, error)
+
+	// aa{sv} org.gnome.UPnP.MediaContainer2.ListItems (IN u offset, IN u max, IN as filter)
+	ListItems(offset uint, max uint, filter []string) ([]map[string]dbus.Variant, error)
 }
 
-// MediaItem2 represents the interface for media items
+// org.gnome.MediaItem2 dbus interface
 type MediaItem2 interface {
 	MediaObject2 // Inherits the MediaObject2 interface
-	// Add methods specific to MediaItem2 here
-}
 
-type PodcastMediaContainer struct {
-	// Implement the necessary properties here
-	ChildCount uint
-}
-
-func (pmc *PodcastMediaContainer) ListChildren(offset uint, max uint, filter []string) ([]map[string]dbus.Variant, error) {
-	// This is a simplified implementation. You'll need to adapt it based on your actual media hierarchy.
-	children := make([]map[string]dbus.Variant, 0)
-	// Example: Populate the children slice based on your application's logic
-	return children, nil
+	Urls() []string   // as org.gnome.UPnP.MediaItem2.URLs
+	MimeType() string // s org.gnome.UPnP.MediaItem2.MIMEType
 }
