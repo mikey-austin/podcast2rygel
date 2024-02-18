@@ -52,25 +52,25 @@ func main() {
 		log.Fatalf("Failed to parse config: %v", err)
 	}
 
-	feeds, err := fetchFeeds(config)
-	if err != nil {
-		log.Fatalf("Failed to fetch feeds: %v", err)
-	}
-	rootDirectory := media.NewPodcastDirectory(
-		func() []*gofeed.Feed { return feeds }, // TODO: invoke fetching in this lambda
-		config.AppName,
-		"/org/gnome/UPnP/MediaServer2/" + config.AppName)
-
 	conn, err := dbus.SessionBus()
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer conn.Close()
 
-	// Register all objects with D-Bus
+	feeds, err := fetchFeeds(config)
+	if err != nil {
+		log.Fatalf("Failed to fetch feeds: %v", err)
+	}
+
+	rootDirectory := media.NewPodcastDirectory(
+		func() []*gofeed.Feed { return feeds }, // TODO: invoke fetching in this lambda
+		config.AppName,
+		"/org/gnome/UPnP/MediaServer2/" + config.AppName)
 	rootDirectory.Register(conn)
 
-	// Request the name on the D-Bus
+	// Request the name on the D-Bus. The prefix needs to be like so or else rygel will not
+	// find us.
 	serviceName := "org.gnome.UPnP.MediaServer2." + config.AppName
 	reply, err := conn.RequestName(serviceName, dbus.NameFlagDoNotQueue)
 	if err != nil {
@@ -81,5 +81,5 @@ func main() {
 	}
 
 	// The service is now running and can be interacted with using D-Bus clients
-	select {} // Run forever
+	select {}
 }
