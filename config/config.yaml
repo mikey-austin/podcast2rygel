@@ -1,0 +1,11 @@
+# Sample configuration file
+
+# No spaces in app name
+appName: Podcast2Rygel
+
+# The list of podcast feeds
+feeds:
+  - name: nihongo-con-teppei-z
+    url: https://nihongoconteppeiz.com/feed/podcast/nihongo-con-teppei-z
+  - name: the-real-japanese-podcast
+    url: https://anchor.fm/s/26aec4fc/podcast/rss

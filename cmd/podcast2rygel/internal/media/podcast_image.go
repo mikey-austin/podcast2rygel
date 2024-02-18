@@ -3,6 +3,7 @@ package media
 import (
 	"fmt"
 	"github.com/godbus/dbus/v5"
+	log "github.com/sirupsen/logrus"
 	"image"
 	_ "image/gif"
 	_ "image/jpeg"
@@ -103,4 +104,5 @@ func (pi *PodcastImage) Depth() int {
 func (pi *PodcastImage) Register(conn *dbus.Conn) {
 	// Register both org.gnome.UPnP.MediaObject2 and
 	// org.gnome.UPnP.MediaItem2 interfaces.
+	log.WithField("image", pi).Debug("exported image")
 }

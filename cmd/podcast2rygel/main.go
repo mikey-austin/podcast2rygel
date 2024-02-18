@@ -1,19 +1,20 @@
 package main
 
 import (
+	log "github.com/sirupsen/logrus"
 	"io/ioutil"
-	"log"
 	"podcast2rygel/cmd/podcast2rygel/internal/media"
 
 	"github.com/godbus/dbus/v5"
 
 	"github.com/mmcdole/gofeed"
+	"github.com/spf13/pflag"
 	"gopkg.in/yaml.v2"
 )
 
 type Config struct {
 	AppName string `yaml:"appName"`
-	Feeds    []struct {
+	Feeds   []struct {
 		Name string `yaml:"name"`
 		URL  string `yaml:"url"`
 	} `yaml:"feeds"`
@@ -47,27 +48,27 @@ func fetchFeeds(config *Config) ([]*gofeed.Feed, error) {
 }
 
 func main() {
-	config, err := parseConfig("feeds.yaml")
+	configFile := pflag.String("config", "podcast2rygel.yaml", "the main config file containing the feeds")
+	verbose := pflag.Bool("verbose", false, "enables more debug information")
+	pflag.Parse()
+
+	if *verbose {
+		log.SetLevel(log.DebugLevel)
+	} else {
+		log.SetLevel(log.InfoLevel)
+	}
+
+	config, err := parseConfig(*configFile)
 	if err != nil {
 		log.Fatalf("Failed to parse config: %v", err)
 	}
+	log.WithField("config", config).WithField("file", configFile).Debug("parsed configuration file")
 
 	conn, err := dbus.SessionBus()
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer conn.Close()
-
-	feeds, err := fetchFeeds(config)
-	if err != nil {
-		log.Fatalf("Failed to fetch feeds: %v", err)
-	}
-
-	rootDirectory := media.NewPodcastDirectory(
-		func() []*gofeed.Feed { return feeds }, // TODO: invoke fetching in this lambda
-		config.AppName,
-		"/org/gnome/UPnP/MediaServer2/" + config.AppName)
-	rootDirectory.Register(conn)
 
 	// Request the name on the D-Bus. The prefix needs to be like so or else rygel will not
 	// find us.
@@ -79,6 +80,16 @@ func main() {
 	if reply != dbus.RequestNameReplyPrimaryOwner {
 		log.Fatal("Name already taken")
 	}
+	log.Debug("opened connection to D-Bus session bus")
+
+	rootDirectory := media.NewPodcastDirectory(
+		func() ([]*gofeed.Feed, error) { return fetchFeeds(config) },
+		config.AppName,
+		"/org/gnome/UPnP/MediaServer2/"+config.AppName)
+	rootDirectory.Register(conn)
+	log.Debug("registered all D-Bus podcast objects")
+
+	log.Info("listening for D-Bus requests")
 
 	// The service is now running and can be interacted with using D-Bus clients
 	select {}

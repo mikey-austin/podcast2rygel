@@ -3,10 +3,11 @@ package media
 import (
 	"github.com/godbus/dbus/v5"
 	"github.com/mmcdole/gofeed"
+	log "github.com/sirupsen/logrus"
 )
 
 // Allow for dynamically loading feeds.
-type feedLoader func() []*gofeed.Feed
+type feedLoader func() ([]*gofeed.Feed, error)
 
 // An implementation of the MediaContainer2 interface that contains
 // multiple EpisodeDirectory instances according to the configured podcasts.
@@ -20,83 +21,104 @@ func NewPodcastDirectory(feeds feedLoader, displayName string, path string) *Pod
 	return &PodcastDirectory{feeds: feeds, displayName: displayName, path: path}
 }
 
-func (pmc *PodcastDirectory) Parent() dbus.ObjectPath {
+func (pd *PodcastDirectory) Parent() dbus.ObjectPath {
 	// Top-level container references its own path.
-	return pmc.Path()
+	return pd.Path()
 }
 
-func (pmc *PodcastDirectory) Path() dbus.ObjectPath {
-	return dbus.ObjectPath(pmc.path)
+func (pd *PodcastDirectory) Path() dbus.ObjectPath {
+	return dbus.ObjectPath(pd.path)
 }
 
-func (pmc *PodcastDirectory) Type() string {
+func (pd *PodcastDirectory) Type() string {
 	return "container"
 }
 
-func (pmc *PodcastDirectory) DisplayName() string {
-	return pmc.displayName
+func (pd *PodcastDirectory) DisplayName() string {
+	return pd.displayName
 }
 
-func (pmc *PodcastDirectory) ChildCount() int {
-	return len(pmc.feeds())
+func (pd *PodcastDirectory) ChildCount() int {
+	feeds, err := pd.feeds()
+	if err != nil {
+		log.Fatal(err)
+	}
+	return len(feeds)
 }
 
-func (pmc *PodcastDirectory) ContainerCount() int {
-	return pmc.ChildCount()
+func (pd *PodcastDirectory) ContainerCount() int {
+	return pd.ChildCount()
 }
 
-func (pmc *PodcastDirectory) ItemCount() int {
+func (pd *PodcastDirectory) ItemCount() int {
 	// The items are contained within the episode directories
 	return 0
 }
 
-func (pmc *PodcastDirectory) Searchable() bool {
+func (pd *PodcastDirectory) Searchable() bool {
 	return false
 }
 
-func (pmc *PodcastDirectory) Register(conn *dbus.Conn) {
+func (pd *PodcastDirectory) Register(conn *dbus.Conn) {
 	// Register both org.gnome.UPnP.MediaObject2 and
-        // org.gnome.UPnP.MediaContainer2 interfaces.
+	// org.gnome.UPnP.MediaContainer2 interfaces.
+	err := conn.Export(pd, pd.Path(), "org.gnome.UPnP.MediaContainer2")
+	if err != nil {
+		log.Fatal(err)
+	}
+	pdLog := log.WithField("PodcastDirectory", pd)
+	pdLog.Info("exported root container")
 
 	// Then go through and register each podcast.
-	for _, podcast := range pmc.ListPodcasts() {
+	numPodcasts := 0
+	for i, podcast := range pd.ListPodcasts() {
 		podcast.Register(conn)
+		numPodcasts = i + 1
 	}
+
+	pdLog.WithField("numPodcasts", numPodcasts).Info("finished exported podcasts")
 }
 
-func (pmc *PodcastDirectory) ListPodcasts() []*EpisodeDirectory {
-	feeds := pmc.feeds()
+func (pd *PodcastDirectory) ListPodcasts() []*EpisodeDirectory {
+	feeds, err := pd.feeds()
+	if err != nil {
+		log.Fatal(err)
+	}
 	podcasts := make([]*EpisodeDirectory, len(feeds))
-	for _, feed := range feeds {
-		podcast := &EpisodeDirectory{ParentContainer: pmc, Feed: feed}
-		podcasts = append(podcasts, podcast)
+	for i, feed := range feeds {
+		podcast := NewEpisodeDirectory(pd, feed)
+		podcasts[i] = podcast
 	}
 	return podcasts
 }
 
-func (pmc *PodcastDirectory) ListContainers(offset uint, max uint, filter []string) ([]map[string]dbus.Variant, error) {
-	return pmc.ListChildren(offset, max, filter)
+func (pd *PodcastDirectory) ListContainers(offset uint, max uint, filter []string) ([]map[string]dbus.Variant, error) {
+	return pd.ListChildren(offset, max, filter)
 }
 
-func (pmc *PodcastDirectory) ListItems(offset uint, max uint, filter []string) ([]map[string]dbus.Variant, error) {
+func (pd *PodcastDirectory) ListItems(offset uint, max uint, filter []string) ([]map[string]dbus.Variant, error) {
 	// Podcast directories do not contain items, only episode directories, which are
 	// themselves containers.
 	return nil, nil
 }
 
 // TODO: Take the filter into account and only return requested keys in the output.
-func (pmc *PodcastDirectory) ListChildren(offset uint, max uint, filter []string) ([]map[string]dbus.Variant, error) {
-	feeds := pmc.feeds()[offset : offset+max]
+func (pd *PodcastDirectory) ListChildren(offset uint, max uint, filter []string) ([]map[string]dbus.Variant, error) {
+	feeds, err := pd.feeds()
+	if err != nil {
+		log.Fatal(err)
+	}
+	feeds = feeds[offset : offset+max]
 	children := make([]map[string]dbus.Variant, len(feeds))
-	for _, feed := range feeds {
-		parent := MediaContainer2(pmc)
-		child := MediaContainer2(&EpisodeDirectory{ParentContainer: pmc, Feed: feed})
-		children = append(children, map[string]dbus.Variant{
+	for i, feed := range feeds {
+		parent := MediaContainer2(pd)
+		child := MediaContainer2(NewEpisodeDirectory(pd, feed))
+		children[i] = map[string]dbus.Variant{
 			"Parent":      dbus.MakeVariant(parent.Path),
 			"Type":        dbus.MakeVariant(child.Type()),
 			"ItemCount":   dbus.MakeVariant(child.ItemCount()),
 			"DisplayName": dbus.MakeVariant(child.DisplayName()),
-		})
+		}
 	}
 	return children, nil
 }

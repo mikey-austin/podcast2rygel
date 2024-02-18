@@ -3,12 +3,15 @@ package media
 import (
 	"github.com/godbus/dbus/v5"
 	"github.com/mmcdole/gofeed"
+	log "github.com/sirupsen/logrus"
+	"strconv"
 )
 
 // A particular podcast episode, which implements the MediaItem2 interface.
 type Episode struct {
 	EpisodeDirectory *EpisodeDirectory
 	Item             *gofeed.Item
+	ItemIndex        int
 }
 
 func (e *Episode) Parent() dbus.ObjectPath {
@@ -20,7 +23,7 @@ func (e *Episode) Type() string {
 }
 
 func (e *Episode) Path() dbus.ObjectPath {
-	return dbus.ObjectPath(e.EpisodeDirectory.Path() + "/" + dbus.ObjectPath(e.Item.Title))
+	return dbus.ObjectPath(string(e.EpisodeDirectory.Path()) + "/" + strconv.Itoa(e.ItemIndex))
 }
 
 func (e *Episode) DisplayName() string {
@@ -30,8 +33,8 @@ func (e *Episode) DisplayName() string {
 func (e *Episode) Urls() []string {
 	enclosures := e.Item.Enclosures
 	urls := make([]string, len(enclosures))
-	for _, enclosure := range enclosures {
-		urls = append(urls, enclosure.URL)
+	for i, enclosure := range enclosures {
+		urls[i] = enclosure.URL
 	}
 
 	return urls
@@ -54,15 +57,24 @@ func (e *Episode) Date() string {
 }
 
 func (e *Episode) AlbumArt() *PodcastImage {
-	return NewPodcastImage(
-		e.Item.Image.Title,
+	art := e.EpisodeDirectory.artCache
+	if art != nil {
+		return art
+	}
+
+	art = NewPodcastImage(
+		"podcastImage",
 		string(e.Path()),
 		e.Item.Image.URL)
+	e.EpisodeDirectory.artCache = art
+	return art
 }
 
 func (e *Episode) Register(conn *dbus.Conn) {
 	// Register both org.gnome.UPnP.MediaObject2 and
 	// org.gnome.UPnP.MediaItem2 interfaces.
+	conn.Export(e, e.Path(), "org.gnome.MediaItem2")
+	log.WithFields(log.Fields{"episode": e.DisplayName()}).Debug("exported episode")
 
 	// Register the episode image
 	e.AlbumArt().Register(conn)
