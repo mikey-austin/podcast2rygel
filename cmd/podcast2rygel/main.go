@@ -44,6 +44,7 @@ func fetchFeeds(config *Config) ([]*gofeed.Feed, error) {
 		}
 		feeds = append(feeds, feed)
 	}
+	log.WithField("Feeds", len(feeds)).Info("re-loaded podcast feeds")
 	return feeds, nil
 }
 
