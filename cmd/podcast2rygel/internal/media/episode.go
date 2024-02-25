@@ -2,6 +2,7 @@ package media
 
 import (
 	"github.com/godbus/dbus/v5"
+	"github.com/godbus/dbus/v5/prop"
 	"github.com/mmcdole/gofeed"
 	log "github.com/sirupsen/logrus"
 	"strconv"
@@ -71,6 +72,10 @@ func (e *Episode) AlbumArt() *PodcastImage {
 }
 
 func (e *Episode) Register(conn *dbus.Conn) {
+
+	// Register properties for this episode.
+	prop.Export(conn, e.Path(), GetProps(e))
+
 	// Register both org.gnome.UPnP.MediaObject2 and
 	// org.gnome.UPnP.MediaItem2 interfaces.
 	conn.Export(e, e.Path(), "org.gnome.MediaItem2")

@@ -1,7 +1,10 @@
 package media
 
 import (
+	"strconv"
+
 	"github.com/godbus/dbus/v5"
+	"github.com/godbus/dbus/v5/prop"
 	"github.com/mmcdole/gofeed"
 	log "github.com/sirupsen/logrus"
 )
@@ -11,13 +14,15 @@ type EpisodeDirectory struct {
 	ParentContainer *PodcastDirectory
 	Feed            *gofeed.Feed
 	artCache        *PodcastImage
+	index           int
 }
 
-func NewEpisodeDirectory(parentContainer *PodcastDirectory, feed *gofeed.Feed) *EpisodeDirectory {
+func NewEpisodeDirectory(index int, parentContainer *PodcastDirectory, feed *gofeed.Feed) *EpisodeDirectory {
 	return &EpisodeDirectory{
 		ParentContainer: parentContainer,
 		Feed:            feed,
 		artCache:        nil,
+		index:           index,
 	}
 }
 
@@ -26,7 +31,8 @@ func (ed *EpisodeDirectory) Parent() dbus.ObjectPath {
 }
 
 func (ed *EpisodeDirectory) Path() dbus.ObjectPath {
-	return dbus.ObjectPath(ed.ParentContainer.path + "/" + ed.DisplayName())
+	return dbus.ObjectPath(
+		ed.ParentContainer.path + "/" + strconv.Itoa(ed.index))
 }
 
 func (ed *EpisodeDirectory) Type() string {
@@ -56,10 +62,17 @@ func (ed *EpisodeDirectory) Searchable() bool {
 }
 
 func (ed *EpisodeDirectory) Register(conn *dbus.Conn) {
-	// Register both org.gnome.UPnP.MediaObject2 and
-	// org.gnome.UPnP.MediaContainer2 interfaces.
-	conn.Export(ed, ed.Path(), "org.gnome.UPnP.MediaContainer2")
-	episodeLog := log.WithField("PodcastName", ed.DisplayName())
+	// Register the org.freedesktop.DBus.Properties properties
+	// for the org.gnome.UPnP.MediaObject2 interface
+	prop.Export(conn, ed.Path(), GetMediaContainerProps(ed))
+
+	// Register the org.gnome.UPnP.MediaContainer2 interface.
+	err := conn.ExportMethodTable(
+		GetMediaContainerMethods(ed), ed.Path(), "org.gnome.UPnP.MediaContainer2")
+	if err != nil {
+		log.Fatal(err)
+	}
+	episodeLog := log.WithField("PodcastName", ed.DisplayName()).WithField("Path", ed.Path())
 	episodeLog.Info("exported podcast")
 
 	// Register each episode.
@@ -80,20 +93,20 @@ func (ed *EpisodeDirectory) ListEpisodes() []*Episode {
 	return episodes
 }
 
-func (ed *EpisodeDirectory) ListContainers(offset uint, max uint, filter []string) ([]map[string]dbus.Variant, error) {
+func (ed *EpisodeDirectory) ListContainers(offset uint, max uint, filter []string) ([]map[string]dbus.Variant, *dbus.Error) {
 	// Episode directories only contain episodes, and no containers
 	return nil, nil
 }
 
-func (ed *EpisodeDirectory) ListItems(offset uint, max uint, filter []string) ([]map[string]dbus.Variant, error) {
-	items := ed.Feed.Items[offset : offset+max]
+func (ed *EpisodeDirectory) ListItems(offset uint, max uint, filter []string) ([]map[string]dbus.Variant, *dbus.Error) {
+	items := SliceOffsetWithMax(ed.Feed.Items, offset, max)
 	children := make([]map[string]dbus.Variant, len(items))
 	for i, item := range items {
 		parent := MediaContainer2(ed)
 		child := MediaItem2(&Episode{EpisodeDirectory: ed, Item: item, ItemIndex: i})
 		children[i] = map[string]dbus.Variant{
 			// Media object attributes
-			"Parent":      dbus.MakeVariant(parent.Path),
+			"Parent":      dbus.MakeVariant(parent.Path()),
 			"Type":        dbus.MakeVariant(child.Type()),
 			"Path":        dbus.MakeVariant(child.Path()),
 			"DisplayName": dbus.MakeVariant(child.DisplayName()),
@@ -107,18 +120,6 @@ func (ed *EpisodeDirectory) ListItems(offset uint, max uint, filter []string) ([
 }
 
 // TODO: Take the filter into account and only return requested keys in the output.
-func (ed *EpisodeDirectory) ListChildren(offset uint, max uint, filter []string) ([]map[string]dbus.Variant, error) {
-	items := ed.Feed.Items[offset : offset+max]
-	children := make([]map[string]dbus.Variant, len(items))
-	for i, item := range items {
-		parent := MediaContainer2(ed)
-		child := MediaObject2(&Episode{EpisodeDirectory: ed, Item: item})
-		children[i] = map[string]dbus.Variant{
-			"Parent":      dbus.MakeVariant(parent.Path),
-			"Type":        dbus.MakeVariant(child.Type()),
-			"Path":        dbus.MakeVariant(child.Path()),
-			"DisplayName": dbus.MakeVariant(child.DisplayName()),
-		}
-	}
-	return children, nil
+func (ed *EpisodeDirectory) ListChildren(offset uint, max uint, filter []string) ([]map[string]dbus.Variant, *dbus.Error) {
+	return ed.ListItems(offset, max, filter)
 }

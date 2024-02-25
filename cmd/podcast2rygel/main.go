@@ -70,6 +70,14 @@ func main() {
 	}
 	defer conn.Close()
 
+	// Load in all podcast objects into the bus
+	rootDirectory := media.NewPodcastDirectory(
+		func() ([]*gofeed.Feed, error) { return fetchFeeds(config) },
+		config.AppName,
+		"/org/gnome/UPnP/MediaServer2/"+config.AppName)
+	rootDirectory.Register(conn)
+	log.Debug("registered all D-Bus podcast objects")
+
 	// Request the name on the D-Bus. The prefix needs to be like so or else rygel will not
 	// find us.
 	serviceName := "org.gnome.UPnP.MediaServer2." + config.AppName
@@ -81,13 +89,6 @@ func main() {
 		log.Fatal("Name already taken")
 	}
 	log.Debug("opened connection to D-Bus session bus")
-
-	rootDirectory := media.NewPodcastDirectory(
-		func() ([]*gofeed.Feed, error) { return fetchFeeds(config) },
-		config.AppName,
-		"/org/gnome/UPnP/MediaServer2/"+config.AppName)
-	rootDirectory.Register(conn)
-	log.Debug("registered all D-Bus podcast objects")
 
 	log.Info("listening for D-Bus requests")
 

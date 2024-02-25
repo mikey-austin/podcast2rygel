@@ -2,6 +2,7 @@ package media
 
 import (
 	"github.com/godbus/dbus/v5"
+	"github.com/godbus/dbus/v5/prop"
 	"github.com/mmcdole/gofeed"
 	log "github.com/sirupsen/logrus"
 )
@@ -60,9 +61,15 @@ func (pd *PodcastDirectory) Searchable() bool {
 }
 
 func (pd *PodcastDirectory) Register(conn *dbus.Conn) {
+
+	// Register the org.freedesktop.DBus.Properties properties
+	// for the org.gnome.UPnP.MediaObject2 interface
+	prop.Export(conn, pd.Path(), GetMediaContainerProps(pd))
+
 	// Register both org.gnome.UPnP.MediaObject2 and
 	// org.gnome.UPnP.MediaContainer2 interfaces.
-	err := conn.Export(pd, pd.Path(), "org.gnome.UPnP.MediaContainer2")
+	err := conn.ExportMethodTable(
+		GetMediaContainerMethods(pd), pd.Path(), "org.gnome.UPnP.MediaContainer2")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -86,37 +93,37 @@ func (pd *PodcastDirectory) ListPodcasts() []*EpisodeDirectory {
 	}
 	podcasts := make([]*EpisodeDirectory, len(feeds))
 	for i, feed := range feeds {
-		podcast := NewEpisodeDirectory(pd, feed)
+		podcast := NewEpisodeDirectory(i, pd, feed)
 		podcasts[i] = podcast
 	}
 	return podcasts
 }
 
-func (pd *PodcastDirectory) ListContainers(offset uint, max uint, filter []string) ([]map[string]dbus.Variant, error) {
+func (pd *PodcastDirectory) ListContainers(offset uint, max uint, filter []string) ([]map[string]dbus.Variant, *dbus.Error) {
 	return pd.ListChildren(offset, max, filter)
 }
 
-func (pd *PodcastDirectory) ListItems(offset uint, max uint, filter []string) ([]map[string]dbus.Variant, error) {
+func (pd *PodcastDirectory) ListItems(offset uint, max uint, filter []string) ([]map[string]dbus.Variant, *dbus.Error) {
 	// Podcast directories do not contain items, only episode directories, which are
 	// themselves containers.
 	return nil, nil
 }
 
 // TODO: Take the filter into account and only return requested keys in the output.
-func (pd *PodcastDirectory) ListChildren(offset uint, max uint, filter []string) ([]map[string]dbus.Variant, error) {
+func (pd *PodcastDirectory) ListChildren(offset uint, max uint, filter []string) ([]map[string]dbus.Variant, *dbus.Error) {
 	feeds, err := pd.feeds()
 	if err != nil {
 		log.Fatal(err)
 	}
-	feeds = feeds[offset : offset+max]
+	feeds = SliceOffsetWithMax(feeds, offset, max)
 	children := make([]map[string]dbus.Variant, len(feeds))
 	for i, feed := range feeds {
 		parent := MediaContainer2(pd)
-		child := MediaContainer2(NewEpisodeDirectory(pd, feed))
+		child := MediaContainer2(NewEpisodeDirectory(i, pd, feed))
 		children[i] = map[string]dbus.Variant{
-			"Parent":      dbus.MakeVariant(parent.Path),
+			"Parent":      dbus.MakeVariant(parent.Path()),
 			"Type":        dbus.MakeVariant(child.Type()),
-			"ItemCount":   dbus.MakeVariant(child.ItemCount()),
+			"Path":        dbus.MakeVariant(child.Path()),
 			"DisplayName": dbus.MakeVariant(child.DisplayName()),
 		}
 	}
