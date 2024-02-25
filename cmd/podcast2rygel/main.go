@@ -1,9 +1,11 @@
 package main
 
 import (
-	log "github.com/sirupsen/logrus"
 	"io/ioutil"
 	"podcast2rygel/cmd/podcast2rygel/internal/media"
+	"time"
+
+	log "github.com/sirupsen/logrus"
 
 	"github.com/godbus/dbus/v5"
 
@@ -72,8 +74,21 @@ func main() {
 	defer conn.Close()
 
 	// Load in all podcast objects into the bus
+	ttl := 2 * time.Minute
+	lastRefreshed := time.Now().Add(-1 * time.Hour)
+	var lastResult []*gofeed.Feed = nil
 	rootDirectory := media.NewPodcastDirectory(
-		func() ([]*gofeed.Feed, error) { return fetchFeeds(config) },
+		func() ([]*gofeed.Feed, error) {
+			now := time.Now()
+			if now.Unix() >= lastRefreshed.Add(ttl).Unix() {
+				lastResult, err = fetchFeeds(config)
+				lastRefreshed = now
+			} else {
+				remainingSeconds := int64(ttl.Seconds()) - (now.Unix() - lastRefreshed.Unix())
+				log.WithField("SecondsUntilNextRefresh", remainingSeconds).Info("using cached feeds")
+			}
+			return lastResult, err
+		},
 		config.AppName,
 		"/org/gnome/UPnP/MediaServer2/"+config.AppName)
 	rootDirectory.Register(conn)
